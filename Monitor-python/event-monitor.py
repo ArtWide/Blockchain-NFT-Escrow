@@ -32,6 +32,16 @@ class Event_Filter():
         transaction_hash = event['transactionHash'].hex()
         print(f"user address: {user}, token ID: {token_id}, amount: {amount}, timestamp: {migration_time}, transaction hash: {transaction_hash}")
 
+    def handle_withdrawal(self, event):
+        print("emit Withdrawal event")
+        user = event['args']['user']
+        token_id = event['args']['tokenId']
+        amount = event['args']['amount']
+        withdrawal_time = event['args']['timestamp']
+        transaction_hash = event['transactionHash'].hex()
+        print(
+            f"user address: {user}, token ID: {token_id}, amount: {amount}, timestamp: {withdrawal_time}, transaction hash: {transaction_hash}")
+
     def monitor_events(self, w3, contract_address, network, block_size, contract_abi, from_block, current_block):
         contract = w3.eth.contract(address=contract_address, abi=contract_abi)
         if from_block == 0 or from_block > current_block:
@@ -42,9 +52,13 @@ class Event_Filter():
             print(f'Now processing {network} blocks {from_block} to {to_block}...')
 
             event_filter_Migration = contract.events.Migration.createFilter(fromBlock=from_block, toBlock=to_block)
+            event_filter_Withdrawal = contract.events.Withdrawal.createFilter(fromBlock=from_block, toBlock=to_block)
 
             for event in event_filter_Migration.get_all_entries():
                 self.handle_migration(event)
+
+            for event in event_filter_Withdrawal.get_all_entries():
+                self.handle_withdrawal(event)
 
             from_block = to_block + 1
 
@@ -62,7 +76,7 @@ NETWORK = ['Base']
 # NETTYPE = 'mainnet'
 NETTYPE = 'testnet'
 BLOCK_SIZE = 1500
-CONTRACT_ADDRESS = '0x1dF4DB808FD43A867A087D38c01e804E3b3e6f81'
+CONTRACT_ADDRESS = '0x50116e97B22da959E7677402092d28B994ff4bC6'
 
 EVENT_FILTER_INTERVAL = 60
 while True:
