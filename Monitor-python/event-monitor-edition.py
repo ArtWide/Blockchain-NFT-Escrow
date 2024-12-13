@@ -64,7 +64,8 @@ class Event_Filter():
 
 eventFilter = Event_Filter()
 RPC = {
-       'Base_testnet': 'https://84532.rpc.thirdweb.com/'
+       'Base_testnet': 'https://84532.rpc.thirdweb.com/',
+        'Ethereum_mainnet': 'https://rpc.ankr.com/eth',
         # add more RPC URLs
         # 'Polygon_mainnet': 'https://polygon-mainnet.g.alchemy.com/v2/THISISKEY',
         # 'Avalanche_mainnet': 'https://avax-mainnet.g.alchemy.com/v2/THISISKEY',
@@ -76,14 +77,14 @@ NETWORK = ['Base']
 # NETTYPE = 'mainnet'
 NETTYPE = 'testnet'
 BLOCK_SIZE = 1500
-CONTRACT_ADDRESS = '0x50116e97B22da959E7677402092d28B994ff4bC6'
+CONTRACT_ADDRESS = '0xBDB8BACCCEa6e43618A4D2293116c47Db2522406'
 
 EVENT_FILTER_INTERVAL = 60
 while True:
     for NET in NETWORK:
         try:
             BLOCK_FILE = f'./block/{NET}_{NETTYPE}.txt'
-            ABI_FILE = 'NFT_Migration'
+            ABI_FILE = 'Edition-Migration'
             abi = eventFilter.read_ABI_from_file(ABI_FILE)
 
             # Web3 인스턴스 생성 및 Ethereum 노드에 연결

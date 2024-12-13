@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// EditionMigration 1.2.0
+// EditionMigration 1.3.0
 pragma solidity ^0.8.0;
 
 import "@openzeppelin/contracts/token/ERC1155/IERC1155.sol";
@@ -9,6 +9,7 @@ import "@thirdweb-dev/contracts/extension/Multicall.sol";
 import "@thirdweb-dev/contracts/extension/ContractMetadata.sol";
 
 contract EditionMigration is PermissionsEnumerable, Multicall, ContractMetadata, ERC1155Holder {
+    uint256 public maxTokenId = 0;
     IERC1155 public erc1155Token; // ERC-1155 token contract address
     address public deployer;
 
@@ -32,13 +33,18 @@ contract EditionMigration is PermissionsEnumerable, Multicall, ContractMetadata,
     event MigrationResumed(address indexed admin, uint256 timestamp);
     event Withdrawal(address indexed user, uint256 indexed tokenId, uint256 amount, uint256 timestamp);
 
+    error ExistingMigratedTokens(address user, uint256 tokenId, uint256 amount);
+    error InvalidTokenId(uint256 tokenId);
 
     // Constructor to initialize the contract without setting the ERC-1155 token address
-    constructor(string memory _contractURI, address _deployer) {
+    constructor(string memory _contractURI, address _deployer, address _erc1155TokenAddress, uint256 _maxTokenId) {
         _setupRole(DEFAULT_ADMIN_ROLE, _deployer);
         deployer = _deployer;
         _setupContractURI(_contractURI);
+        erc1155Token = IERC1155(_erc1155TokenAddress);
+        maxTokenId = _maxTokenId;
         isMigrationPaused = false;
+        isWithdrawPaused = false;
     }
 
     // Modifier to check if migration is active
@@ -95,64 +101,59 @@ contract EditionMigration is PermissionsEnumerable, Multicall, ContractMetadata,
     // Function to migrate the user's ERC-1155 tokens to the contract
     function migrate(uint256 tokenId) external whenMigrationActive {
         require(address(erc1155Token) != address(0), "ERC-1155 token address not set");
+        if (tokenId >= maxTokenId) revert InvalidTokenId(tokenId);
+
+        // Check if user has any existing migrated tokens
+        for (uint256 i = 0; i < maxTokenId; i++) {
+            if (migratedTokens[msg.sender][i] > 0) {
+                revert ExistingMigratedTokens(msg.sender, i, migratedTokens[msg.sender][i]);
+            }
+        }
 
         uint256 userBalance = erc1155Token.balanceOf(msg.sender, tokenId);
-
-        // If the user does not own any of the specified token, revert the transaction
         require(userBalance > 0, "You do not own any of this token");
-
-        // Check if the user has approved the contract to transfer their tokens
         require(erc1155Token.isApprovedForAll(msg.sender, address(this)), "Contract not approved to transfer tokens");
 
-        // Transfer the user's ERC-1155 tokens to the contract
         erc1155Token.safeTransferFrom(msg.sender, address(this), tokenId, userBalance, "");
+        migratedTokens[msg.sender][tokenId] = userBalance;
 
-        // Record the number of tokens migrated by the user
-        migratedTokens[msg.sender][tokenId] += userBalance;
-
-        // Add user to migratedUsers array if not already added
         if (!hasUserMigrated[msg.sender]) {
             migratedUsers.push(msg.sender);
             hasUserMigrated[msg.sender] = true;
         }
 
-        // Emit the migration event
         emit Migration(msg.sender, tokenId, userBalance, block.timestamp);
     }
 
-    // Function to withdraw the user's ERC-1155 tokens from the contract
-    function withdraw(uint256 tokenId, uint256 amount) external {
+    // Modified withdraw function to withdraw all tokens of a specific tokenId
+    function withdraw(uint256 tokenId) external whenNotPaused {
         require(address(erc1155Token) != address(0), "ERC-1155 token address not set");
-        require(migratedTokens[msg.sender][tokenId] >= amount, "Insufficient migrated tokens");
+        if (tokenId >= maxTokenId) revert InvalidTokenId(tokenId);
 
-        // Decrease the number of tokens migrated by the user
-        migratedTokens[msg.sender][tokenId] -= amount;
+        uint256 amount = migratedTokens[msg.sender][tokenId];
+        require(amount > 0, "No tokens to withdraw");
 
-        // Transfer the ERC-1155 tokens back to the user
+        migratedTokens[msg.sender][tokenId] = 0;
         erc1155Token.safeTransferFrom(address(this), msg.sender, tokenId, amount, "");
 
-        // If the user has no more tokens of this type, remove them from migratedUsers
-        if (migratedTokens[msg.sender][tokenId] == 0) {
-            bool hasOtherTokens = false;
-            for (uint256 i = 0; i < migratedUsers.length; i++) {
-                if (migratedUsers[i] == msg.sender) {
-                    for (uint256 j = 0; j < migratedUsers.length; j++) {
-                        if (migratedTokens[msg.sender][j] > 0) {
-                            hasOtherTokens = true;
-                            break;
-                        }
+        bool hasOtherTokens = false;
+        for (uint256 i = 0; i < migratedUsers.length; i++) {
+            if (migratedUsers[i] == msg.sender) {
+                for (uint256 j = 0; j < maxTokenId; j++) {
+                    if (migratedTokens[msg.sender][j] > 0) {
+                        hasOtherTokens = true;
+                        break;
                     }
-                    if (!hasOtherTokens) {
-                        migratedUsers[i] = migratedUsers[migratedUsers.length - 1];
-                        migratedUsers.pop();
-                        hasUserMigrated[msg.sender] = false;
-                    }
-                    break;
                 }
+                if (!hasOtherTokens) {
+                    migratedUsers[i] = migratedUsers[migratedUsers.length - 1];
+                    migratedUsers.pop();
+                    hasUserMigrated[msg.sender] = false;
+                }
+                break;
             }
         }
 
-        // Emit the withdrawal event
         emit Withdrawal(msg.sender, tokenId, amount, block.timestamp);
     }
 
@@ -173,7 +174,7 @@ contract EditionMigration is PermissionsEnumerable, Multicall, ContractMetadata,
     }
 
     // Function to check if a user has migrated any tokens
-    function hasUserMigratedTokens(address user) external view returns (bool) {
+    function getHasUserMigratedTokens(address user) external view returns (bool) {
         return hasUserMigrated[user];
     }
 
